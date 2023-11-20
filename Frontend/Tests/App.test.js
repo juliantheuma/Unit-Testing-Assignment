@@ -13,7 +13,6 @@ describe("App should initialize correctly", () => {
         
     })
 
-    test.todo("App must display main menu on start")
 
 
     })

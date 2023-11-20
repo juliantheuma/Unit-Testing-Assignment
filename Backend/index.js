@@ -8,71 +8,103 @@ const airportApiUrl = "https://airport-info.p.rapidapi.com/airport";
 const primaryIpApiUrl = "http://ip-api.com"
 const weatherApiUrl = "https://weatherapi-com.p.rapidapi.com"
 
+let api;
+
 app.use(express.json())
 
 app.get("/weather/current", async (req, res) => {
 
-    
-    let {isCold, isRaining} = await getCurrentWeather(req);
-    res.json({isRaining, isCold})
+    await api.getCurrentWeatherHandler(req, res)
+
 })
-
-async function getCurrentWeather(req){
-
-    let geoLocationData = await callGeoLocationApisWithFallback(req.ip)
-    //get longitude and latitude
-
-    let latitude = geoLocationData.lat;
-    let longitude = geoLocationData.lon;
-
-    //call weather api
-    let weatherData = await callCurrentWeatherApi(longitude, latitude);
-    let temperature = weatherData.current.temp_c;
-    let precipitation = weatherData.current.precip_mm;
-
-    //set isCold and isRaining
-    let { isCold, isRaining } = calculateWeatherConditions(temperature, precipitation);
-    return { isCold, isRaining}
-}
 
 app.get("/weather/forecast", async (req, res) => {
 
-        await getForecast();
+        await api.getForecast(req, res);
     })
 
-    async function getForecast(req, res){
+    
+
+
+class MyAPI {
+
+    constructor(){
+
+    }
+
+    async getForecast(req, res){
 
         try{
             let { airportCode, dateOfArrival } = req.query; //get airport code and date of arrival from query parameters
        
-            let { iataCode, icaoCode } = determineAirportCodeType(airportCode);
+            let { iataCode, icaoCode } = this.determineAirportCodeType(airportCode);
        
             //Call airport info api with airport code
-           let airportData = await callAirportApi(iataCode, icaoCode);
+           let airportData = await this.callAirportApi(iataCode, icaoCode);
        
            let latitude = airportData.latitude;
            let longitude = airportData.longitude;
        
             //Call the weather api using longitude, latitude and date
-           let weatherForecast = await callWeatherForecastApi(longitude, latitude, dateOfArrival);
+           let weatherForecast = await this.callWeatherForecastApi(longitude, latitude, dateOfArrival);
        
            let temperature =  weatherForecast.forecast.forecastday[0].day.avgtemp_c;
            let precipitation = weatherForecast.forecast.forecastday[0].day.totalprecip_mm;
        
-           let { isCold, isRaining } = calculateWeatherConditions(temperature, precipitation);
+           let { isCold, isRaining } = this.calculateWeatherConditions(temperature, precipitation);
        
            res.json({isRaining, isCold})
        
            }
            catch(error){
-               res.status(500).json({
+               res.json({
                    error: error.message
                })
            }
 
     }
 
-function determineAirportCodeType(airportCode){
+    async getCurrentWeatherHandler(req, res) {
+        try{
+    
+            let {isCold, isRaining} = await this.getCurrentWeather(req);
+            res.json({isRaining, isCold})
+            }
+            catch {
+                res.json({
+                    error: "Error getting current weather conditions"
+                })
+            }
+    }
+    
+    async getCurrentWeather(req){
+    
+        try{
+    
+        let geoLocationData = await this.callGeoLocationApisWithFallback(req.ip)
+        //get longitude and latitude
+    
+        let latitude = geoLocationData.lat;
+        let longitude = geoLocationData.lon;
+    
+        //call weather api
+        let weatherData = await this.callCurrentWeatherApi(longitude, latitude);
+        let temperature = weatherData.current.temp_c;
+        let precipitation = weatherData.current.precip_mm;
+    
+        //set isCold and isRaining
+        let { isCold, isRaining } = this.calculateWeatherConditions(temperature, precipitation);
+        return { isCold, isRaining}
+    
+        }
+        catch {
+    
+            throw new Error("Error getting current weather")
+        }
+    }
+
+
+ determineAirportCodeType(airportCode){
     
     const regex = /^[A-Za-z]{3,4}$/; //Only letters, and 3-4 characters long
     let validated =  regex.test(airportCode);
@@ -90,7 +122,7 @@ function determineAirportCodeType(airportCode){
     }
 }
 
-function calculateWeatherConditions(temperature, precipitation){
+ calculateWeatherConditions(temperature, precipitation){
     let isCold = false;
     let isRaining = false;
 
@@ -103,7 +135,7 @@ function calculateWeatherConditions(temperature, precipitation){
 
     return { isCold, isRaining };
 }
-function fallbackTimeout(duration) {
+ fallbackTimeout(duration) {
     return new Promise((resolve, reject) => {
         setTimeout(() => {
             resolve({
@@ -114,15 +146,15 @@ function fallbackTimeout(duration) {
     })
 }
 
-async function callGeoLocationApisWithFallback(ipAdress){
+async callGeoLocationApisWithFallback(ipAdress){
 
     let geoLocationData = null;
 
     try{
         let primaryResult = 
         await Promise.race([
-            callPrimaryIpGeolocationApi(ipAdress),
-            fallbackTimeout(3000)
+            this.callPrimaryIpGeolocationApi(ipAdress),
+            this.fallbackTimeout(3000)
         ])
 
         if(primaryResult.timeoutError){
@@ -137,7 +169,7 @@ async function callGeoLocationApisWithFallback(ipAdress){
     catch (error) {
 
         try {
-                let secondaryResult = await callSecondaryIpGeolocationApi(ipAdress);
+                let secondaryResult = await this.callSecondaryIpGeolocationApi(ipAdress);
             
                 if(secondaryResult.data){
                     geoLocationData = secondaryResult.data
@@ -158,19 +190,20 @@ async function callGeoLocationApisWithFallback(ipAdress){
 
 }
 
-async function callPrimaryIpGeolocationApi(ipAdress){
+async callPrimaryIpGeolocationApi(ipAdress){
 
     try {
         let geoLocationData = null;
     if(process.env.DEVELOPMENT_BUILD){
 
-    let res = await axios.get(`${primaryIpApiUrl}/json`);
+        let res = await axios.get(`${primaryIpApiUrl}/json`);
         geoLocationData = res.data;
     }
     else{
         let res = await axios.get(`${primaryIpApiUrl}/json/${ipAdress}`);
         geoLocationData = res.data;
     }
+
     return geoLocationData;
     
     } catch (error) {
@@ -182,10 +215,18 @@ async function callPrimaryIpGeolocationApi(ipAdress){
 
 }
 
-async function callSecondaryIpGeolocationApi(ipAdress=null){
+async callSecondaryIpGeolocationApi(ipAdress=null){
     try {
         let apiKey = "77e0604ec1b44c408b757829fc57ce0c";
-        let result = await axios.get(`https://api.ipgeolocation.io/ipgeo?apiKey=${apiKey}`)
+        let result;
+        if(process.env.DEVELOPMENT_BUILD)
+        {
+            result = await axios.get(`https://api.ipgeolocation.io/ipgeo?apiKey=${apiKey}`)
+        }
+        else{
+            result = await axios.get(`https://api.ipgeolocation.io/ipgeo?apiKey=${apiKey}&ip=${ipAdress}`)
+        }
+
         console.log(result.data)
         return result.data
     } catch (error) {
@@ -196,7 +237,7 @@ async function callSecondaryIpGeolocationApi(ipAdress=null){
     
 }
 
-async function callCurrentWeatherApi(longitude, latitude){
+async callCurrentWeatherApi(longitude, latitude){
 
     const options = {
         method: 'GET',
@@ -211,13 +252,15 @@ async function callCurrentWeatherApi(longitude, latitude){
       try {
           const response = await axios.request(options);
           console.log(response.data);
+
           return response.data
       } catch (error) {
           console.error(error);
+          throw new Error("Error getting weather API")
       }
 }
 
-async function callAirportApi(iataCode, icaoCode){
+async callAirportApi(iataCode, icaoCode){
 
     const options = {
         method: 'GET',
@@ -231,14 +274,15 @@ async function callAirportApi(iataCode, icaoCode){
       
       try {
           const response = await axios.request(options);
+          console.log(response.data)
             return response.data
       } catch (error) {
-          throw new Error(error.message)
+          throw new Error("Error getting airport data")
       }
 
 }
 
-async function callWeatherForecastApi(longitude, latitude, date){
+async callWeatherForecastApi(longitude, latitude, date){
 
     const options = {
         method: 'GET',
@@ -259,24 +303,17 @@ async function callWeatherForecastApi(longitude, latitude, date){
           console.log(response.data);
           return response.data
       } catch (error) {
-          throw new Error(error.message)
+        console.log(error)
+          throw new Error("Error getting forecast weather data")
       }
 
 }
-
-module.exports = {
-    callPrimaryIpGeolocationApi,
-    callSecondaryIpGeolocationApi,
-    callWeatherForecastApi,
-    callAirportApi,
-    callCurrentWeatherApi,
-    callGeoLocationApisWithFallback,
-    calculateWeatherConditions,
-    determineAirportCodeType,
-    fallbackTimeout
 }
+
+module.exports = {MyAPI}
 
 
 app.listen(3000, () => {
+    api = new MyAPI();
     console.log('Server is running on http://localhost:3000');
   });
